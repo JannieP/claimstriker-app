@@ -1,0 +1,390 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// User & Authentication
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String?
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  channels      Channel[]
+  disputes      Dispute[]
+
+  @@index([email])
+}
+
+// ============================================================================
+// YouTube Channel & Videos
+// ============================================================================
+
+model Channel {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  youtubeChannelId  String        @unique
+  title             String
+  description       String?
+  thumbnailUrl      String?
+  subscriberCount   Int?
+  videoCount        Int?
+
+  // OAuth tokens (encrypted)
+  accessToken       String
+  refreshToken      String
+  tokenExpiresAt    DateTime
+
+  status            ChannelStatus @default(ACTIVE)
+  lastSyncAt        DateTime?
+  lastSyncError     String?
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  videos            Video[]
+
+  @@index([userId])
+  @@index([youtubeChannelId])
+  @@index([status])
+}
+
+model Video {
+  id              String    @id @default(cuid())
+  channelId       String
+  channel         Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  youtubeVideoId  String    @unique
+  title           String
+  description     String?
+  publishedAt     DateTime
+  thumbnailUrl    String?
+  duration        String?
+  viewCount       Int?
+  likeCount       Int?
+
+  // Status tracking
+  privacyStatus   String?   // public, private, unlisted
+  uploadStatus    String?   // processed, uploaded, failed, rejected
+  license         String?   // youtube, creativeCommon
+
+  // Monetization
+  monetizationStatus    String?   // on, off, limited
+  madeForKids           Boolean?
+
+  // Region restrictions (JSON array of country codes)
+  blockedRegions        String[]  @default([])
+  allowedRegions        String[]  @default([])
+
+  // Previous state for diff detection
+  previousState         Json?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  copyrightEvents CopyrightEvent[]
+
+  @@index([channelId])
+  @@index([youtubeVideoId])
+  @@index([publishedAt])
+}
+
+// ============================================================================
+// Copyright Events & Claims
+// ============================================================================
+
+model CopyrightEvent {
+  id            String      @id @default(cuid())
+  videoId       String
+  video         Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  type          EventType
+  status        EventStatus @default(ACTIVE)
+
+  // Claim details
+  claimantId    String?
+  claimant      Claimant?   @relation(fields: [claimantId], references: [id])
+
+  claimType     String?     // block, monetize, track
+  contentType   String?     // audio, video, audiovisual
+  claimedContent String?    // description of claimed content (e.g., song name)
+
+  // Affected regions
+  affectedRegions String[]  @default([])
+
+  // Impact
+  monetizationImpact  String?   // none, partial, full
+  viewabilityImpact   String?   // none, limited, blocked
+
+  // Raw data from API
+  rawData       Json?
+
+  // AI-generated explanation
+  explanation   String?
+
+  detectedAt    DateTime    @default(now())
+  resolvedAt    DateTime?
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  disputes      Dispute[]
+
+  @@index([videoId])
+  @@index([claimantId])
+  @@index([type])
+  @@index([status])
+  @@index([detectedAt])
+}
+
+// ============================================================================
+// Claimants & Community Intelligence
+// ============================================================================
+
+model Claimant {
+  id              String    @id @default(cuid())
+  name            String
+  nameNormalized  String    @unique  // lowercase, trimmed, no suffixes
+
+  type            ClaimantType?
+
+  // Contact/profile info
+  website         String?
+  email           String?
+  socialLinks     Json?     // { twitter: "...", youtube: "..." }
+
+  // Verification status
+  isVerified      Boolean   @default(false)
+  verifiedAt      DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  copyrightEvents CopyrightEvent[]
+  statistics      ClaimantStatistics?
+  reports         ClaimantReport[]
+
+  @@index([nameNormalized])
+  @@index([type])
+}
+
+model ClaimantStatistics {
+  id              String    @id @default(cuid())
+  claimantId      String    @unique
+  claimant        Claimant  @relation(fields: [claimantId], references: [id], onDelete: Cascade)
+
+  totalClaims     Int       @default(0)
+  totalDisputes   Int       @default(0)
+  totalOverturned Int       @default(0)
+  totalUpheld     Int       @default(0)
+
+  // Calculated metrics
+  disputeRate     Float?    // disputes / claims
+  overturnRate    Float?    // overturned / disputes
+
+  // AI-generated risk assessment
+  riskLevel       RiskLevel?
+  riskExplanation String?
+
+  lastCalculatedAt DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([riskLevel])
+}
+
+model ClaimantReport {
+  id            String    @id @default(cuid())
+  claimantId    String
+  claimant      Claimant  @relation(fields: [claimantId], references: [id], onDelete: Cascade)
+  userId        String    // anonymous in public view
+
+  outcome       ReportOutcome
+
+  // What the claimant asserted
+  claimDescription  String?
+
+  // Why it was overturned (if applicable)
+  overturnReason    String?
+
+  // User's comments
+  comment           String?
+
+  // Evidence
+  evidenceUrl       String?
+
+  // Moderation
+  isApproved        Boolean   @default(false)
+  isFlagged         Boolean   @default(false)
+  moderationNotes   String?
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([claimantId])
+  @@index([outcome])
+  @@index([isApproved])
+}
+
+// ============================================================================
+// Disputes
+// ============================================================================
+
+model Dispute {
+  id                String        @id @default(cuid())
+  copyrightEventId  String
+  copyrightEvent    CopyrightEvent @relation(fields: [copyrightEventId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status            DisputeStatus @default(DRAFT)
+
+  // Dispute basis
+  disputeType       DisputeType?
+
+  // User responses to wizard questions
+  isOriginalContent Boolean?
+  hasLicense        Boolean?
+  isFairUse         Boolean?
+  fairUseType       String?       // review, commentary, parody, education, news
+
+  // Evidence
+  evidenceNotes     String?
+  evidenceFiles     Json?         // [{ name: "...", url: "...", type: "..." }]
+
+  // AI-generated dispute text
+  generatedText     String?
+
+  // User modifications
+  userNotes         String?
+  finalText         String?       // User's final version after editing
+
+  // Tracking
+  submittedAt       DateTime?
+  resolvedAt        DateTime?
+  resolution        String?       // won, lost, withdrawn, expired
+
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([copyrightEventId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ============================================================================
+// Notifications
+// ============================================================================
+
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String
+
+  type        NotificationType
+  title       String
+  message     String
+
+  // Related entities
+  channelId   String?
+  videoId     String?
+  eventId     String?
+
+  isRead      Boolean   @default(false)
+  readAt      DateTime?
+
+  // Email tracking
+  emailSent   Boolean   @default(false)
+  emailSentAt DateTime?
+
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum ChannelStatus {
+  ACTIVE
+  PAUSED
+  REVOKED
+  ERROR
+}
+
+enum EventType {
+  CLAIM
+  STRIKE
+  MONETIZATION_CHANGE
+  REGION_RESTRICTION
+}
+
+enum EventStatus {
+  ACTIVE
+  EXPIRED
+  WITHDRAWN
+  DISPUTED
+  RESOLVED
+}
+
+enum ClaimantType {
+  LABEL         // Music labels (UMG, Sony, Warner)
+  MCN           // Multi-channel networks
+  STUDIO        // Film/TV studios
+  PUBLISHER     // Publishing companies
+  INDIVIDUAL    // Individual creators
+  UNKNOWN
+}
+
+enum RiskLevel {
+  LOW           // Likely legitimate rights holder
+  MEDIUM        // Mixed history, caution advised
+  HIGH          // Frequently overturned claims
+}
+
+enum ReportOutcome {
+  OVERTURNED    // Dispute won by creator
+  UPHELD        // Claim maintained
+  WITHDRAWN     // Claimant withdrew
+  PENDING       // Still in dispute
+}
+
+enum DisputeStatus {
+  DRAFT         // User is preparing
+  READY         // Generated, ready to submit
+  SUBMITTED     // User marked as submitted
+  WON           // Dispute successful
+  LOST          // Dispute rejected
+  UNKNOWN       // Outcome not reported
+}
+
+enum DisputeType {
+  ORIGINAL_CONTENT  // I created this content
+  LICENSED          // I have a license
+  FAIR_USE          // Fair use applies
+  PUBLIC_DOMAIN     // Content is public domain
+  MISIDENTIFICATION // Wrong content identified
+  OTHER
+}
+
+enum NotificationType {
+  NEW_CLAIM
+  NEW_STRIKE
+  MONETIZATION_CHANGE
+  DISPUTE_UPDATE
+  SYNC_ERROR
+  WEEKLY_SUMMARY
+}
