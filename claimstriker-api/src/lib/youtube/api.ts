@@ -36,6 +36,14 @@ export async function getChannelInfo(
   };
 }
 
+// Convert channel ID to uploads playlist ID (UC... -> UU...)
+function getUploadsPlaylistId(channelId: string): string {
+  if (channelId.startsWith('UC')) {
+    return 'UU' + channelId.slice(2);
+  }
+  return channelId;
+}
+
 export async function listVideos(
   accessToken: string,
   channelId: string,
@@ -43,18 +51,18 @@ export async function listVideos(
 ): Promise<{ videos: YouTubeVideoInfo[]; nextPageToken?: string }> {
   const youtube = getYouTubeClient(accessToken);
 
-  // First, search for videos in the channel
-  const searchResponse = await youtube.search.list({
-    part: ['id'],
-    channelId,
-    type: ['video'],
+  // Use playlistItems API with the uploads playlist for complete video list
+  const uploadsPlaylistId = getUploadsPlaylistId(channelId);
+
+  const playlistResponse = await youtube.playlistItems.list({
+    part: ['contentDetails'],
+    playlistId: uploadsPlaylistId,
     maxResults: 50,
-    order: 'date',
     pageToken,
   });
 
-  const videoIds = searchResponse.data.items
-    ?.map((item) => item.id?.videoId)
+  const videoIds = playlistResponse.data.items
+    ?.map((item) => item.contentDetails?.videoId)
     .filter((id): id is string => !!id);
 
   if (!videoIds || videoIds.length === 0) {
@@ -73,7 +81,7 @@ export async function listVideos(
 
   return {
     videos,
-    nextPageToken: searchResponse.data.nextPageToken || undefined,
+    nextPageToken: playlistResponse.data.nextPageToken || undefined,
   };
 }
 
