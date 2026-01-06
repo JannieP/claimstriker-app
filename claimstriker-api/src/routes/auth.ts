@@ -1,7 +1,9 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
+import { Role } from '@prisma/client';
 import { prisma } from '../config/database.js';
 import { hashPassword, verifyPassword } from '../lib/encryption.js';
+import { getPermissionsForRole } from '../lib/permissions.js';
 import type { AuthResponse, JWTPayload } from '../types/index.js';
 
 const registerSchema = z.object({
@@ -41,6 +43,12 @@ export async function authRoutes(fastify: FastifyInstance) {
       });
     }
 
+    // Check if this is the first user or matches SUPER_ADMIN_EMAIL
+    const userCount = await prisma.user.count();
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const shouldBeSuperAdmin =
+      userCount === 0 || (superAdminEmail && email.toLowerCase() === superAdminEmail.toLowerCase());
+
     // Create user
     const passwordHash = await hashPassword(password);
     const user = await prisma.user.create({
@@ -48,11 +56,13 @@ export async function authRoutes(fastify: FastifyInstance) {
         email,
         passwordHash,
         name,
+        role: shouldBeSuperAdmin ? Role.SUPER_ADMIN : Role.USER,
       },
       select: {
         id: true,
         email: true,
         name: true,
+        role: true,
       },
     });
 
@@ -60,21 +70,22 @@ export async function authRoutes(fastify: FastifyInstance) {
     const payload: JWTPayload = {
       userId: user.id,
       email: user.email,
+      role: user.role,
     };
     const token = fastify.jwt.sign(payload);
 
-    const response: AuthResponse = {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-      },
-    };
-
     return reply.status(201).send({
       success: true,
-      data: response,
+      data: {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          permissions: getPermissionsForRole(user.role),
+        },
+      },
     });
   });
 
@@ -94,6 +105,13 @@ export async function authRoutes(fastify: FastifyInstance) {
     // Find user
     const user = await prisma.user.findUnique({
       where: { email },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        passwordHash: true,
+      },
     });
 
     if (!user) {
@@ -116,21 +134,22 @@ export async function authRoutes(fastify: FastifyInstance) {
     const payload: JWTPayload = {
       userId: user.id,
       email: user.email,
+      role: user.role,
     };
     const token = fastify.jwt.sign(payload);
 
-    const response: AuthResponse = {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-      },
-    };
-
     return reply.send({
       success: true,
-      data: response,
+      data: {
+        token,
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          permissions: getPermissionsForRole(user.role),
+        },
+      },
     });
   });
 
@@ -149,7 +168,14 @@ export async function authRoutes(fastify: FastifyInstance) {
           id: true,
           email: true,
           name: true,
+          role: true,
           createdAt: true,
+          channels: {
+            select: {
+              id: true,
+              contentOwnerId: true,
+            },
+          },
           _count: {
             select: {
               channels: true,
@@ -165,14 +191,20 @@ export async function authRoutes(fastify: FastifyInstance) {
         });
       }
 
+      // Check if any channel has partner access (contentOwnerId is set)
+      const hasPartnerAccess = user.channels.some((ch) => ch.contentOwnerId !== null);
+
       return reply.send({
         success: true,
         data: {
           id: user.id,
           email: user.email,
           name: user.name,
+          role: user.role,
+          permissions: getPermissionsForRole(user.role),
           createdAt: user.createdAt,
           channelCount: user._count.channels,
+          hasPartnerAccess,
         },
       });
     }

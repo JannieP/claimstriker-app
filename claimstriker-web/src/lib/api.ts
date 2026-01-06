@@ -93,12 +93,14 @@ class ApiClient {
   async syncChannel(channelId: string) {
     return this.request<ApiResponse<any>>(`/channels/${channelId}/sync`, {
       method: 'POST',
+      body: JSON.stringify({}),
     });
   }
 
   async deleteChannel(channelId: string) {
     return this.request<ApiResponse<any>>(`/channels/${channelId}`, {
       method: 'DELETE',
+      body: JSON.stringify({}),
     });
   }
 
@@ -116,6 +118,7 @@ class ApiClient {
     channelId?: string;
     search?: string;
     hasEvents?: boolean;
+    videoType?: 'all' | 'short' | 'long';
   }) {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set('page', params.page.toString());
@@ -123,6 +126,7 @@ class ApiClient {
     if (params?.channelId) searchParams.set('channelId', params.channelId);
     if (params?.search) searchParams.set('search', params.search);
     if (params?.hasEvents !== undefined) searchParams.set('hasEvents', params.hasEvents.toString());
+    if (params?.videoType && params.videoType !== 'all') searchParams.set('videoType', params.videoType);
 
     const query = searchParams.toString();
     return this.request<PaginatedResponse<any>>(`/videos${query ? `?${query}` : ''}`);
@@ -179,6 +183,147 @@ class ApiClient {
       body: JSON.stringify({ status }),
     });
   }
+
+  // Claim sync
+  async syncChannelClaims(channelId: string, fullSync?: boolean) {
+    const query = fullSync ? '?fullSync=true' : '';
+    return this.request<ApiResponse<any>>(`/channels/${channelId}/sync-claims${query}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  // Admin
+  async getAdminStats() {
+    return this.request<ApiResponse<{
+      totalUsers: number;
+      totalChannels: number;
+      totalVideos: number;
+      totalEvents: number;
+      usersByRole: Record<string, number>;
+      recentUsers: number;
+    }>>('/admin/stats');
+  }
+
+  async getAdminUsers(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.set('page', params.page.toString());
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.search) searchParams.set('search', params.search);
+
+    const query = searchParams.toString();
+    return this.request<ApiResponse<{
+      users: AdminUser[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>>(`/admin/users${query ? `?${query}` : ''}`);
+  }
+
+  async getAdminUser(userId: string) {
+    return this.request<ApiResponse<AdminUserDetail>>(`/admin/users/${userId}`);
+  }
+
+  async updateAdminUser(userId: string, data: { name?: string; emailVerified?: boolean }) {
+    return this.request<ApiResponse<any>>(`/admin/users/${userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateAdminUserRole(userId: string, role: 'USER' | 'ADMIN' | 'SUPER_ADMIN') {
+    return this.request<ApiResponse<any>>(`/admin/users/${userId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+  }
+
+  async deleteAdminUser(userId: string) {
+    return this.request<ApiResponse<any>>(`/admin/users/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async getAdminChannels(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+  }) {
+    const searchParams = new URLSearchParams();
+    if (params?.page) searchParams.set('page', params.page.toString());
+    if (params?.limit) searchParams.set('limit', params.limit.toString());
+    if (params?.search) searchParams.set('search', params.search);
+
+    const query = searchParams.toString();
+    return this.request<ApiResponse<{
+      channels: AdminChannel[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>>(`/admin/channels${query ? `?${query}` : ''}`);
+  }
+}
+
+// Admin types
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
+  emailVerified: boolean;
+  createdAt: string;
+  channelCount: number;
+  hasPartnerAccess: boolean;
+}
+
+export interface AdminUserDetail extends AdminUser {
+  updatedAt: string;
+  permissions: string[];
+  channels: {
+    id: string;
+    title: string;
+    youtubeChannelId: string;
+    thumbnailUrl: string | null;
+    subscriberCount: number;
+    videoCount: number;
+    isPartner: boolean;
+    status: string;
+    lastSyncAt: string | null;
+    createdAt: string;
+  }[];
+  _count: {
+    channels: number;
+    disputes: number;
+  };
+}
+
+export interface AdminChannel {
+  id: string;
+  youtubeChannelId: string;
+  title: string;
+  thumbnailUrl: string | null;
+  subscriberCount: number;
+  videoCount: number;
+  isPartner: boolean;
+  status: string;
+  lastSyncAt: string | null;
+  createdAt: string;
+  syncedVideoCount: number;
+  user: {
+    id: string;
+    email: string;
+    name: string | null;
+  };
 }
 
 export const api = new ApiClient();

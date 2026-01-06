@@ -5,10 +5,12 @@ import {
   closeQueues,
   QUEUE_NAMES,
   type ChannelSyncJob,
+  type ClaimSyncJob,
   type ClaimDetectJob,
   type NotificationJob,
 } from './queue.js';
 import { processChannelSync } from './channelSync.js';
+import { processClaimSync } from './claimSync.js';
 import { processClaimDetect } from './claimDetect.js';
 import { processNotification } from './notification.js';
 import { runScheduler } from './scheduler.js';
@@ -24,6 +26,11 @@ const channelSyncWorker = createWorker<ChannelSyncJob>(
   processChannelSync
 );
 
+const claimSyncWorker = createWorker<ClaimSyncJob>(
+  QUEUE_NAMES.CLAIM_SYNC,
+  processClaimSync
+);
+
 const claimDetectWorker = createWorker<ClaimDetectJob>(
   QUEUE_NAMES.CLAIM_DETECT,
   processClaimDetect
@@ -36,6 +43,7 @@ const notificationWorker = createWorker<NotificationJob>(
 
 console.log('Workers started:');
 console.log(`  - ${QUEUE_NAMES.CHANNEL_SYNC}`);
+console.log(`  - ${QUEUE_NAMES.CLAIM_SYNC}`);
 console.log(`  - ${QUEUE_NAMES.CLAIM_DETECT}`);
 console.log(`  - ${QUEUE_NAMES.NOTIFICATION}`);
 
@@ -51,6 +59,7 @@ signals.forEach((signal) => {
     // Close workers first
     await Promise.all([
       channelSyncWorker.close(),
+      claimSyncWorker.close(),
       claimDetectWorker.close(),
       notificationWorker.close(),
     ]);

@@ -17,6 +17,7 @@ model User {
   passwordHash  String
   name          String?
   emailVerified Boolean   @default(false)
+  role          Role      @default(USER)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -24,6 +25,7 @@ model User {
   disputes      Dispute[]
 
   @@index([email])
+  @@index([role])
 }
 
 // ============================================================================
@@ -42,6 +44,9 @@ model Channel {
   subscriberCount   Int?
   videoCount        Int?
 
+  // Content ID API - Content Owner ID (required for partner API calls)
+  contentOwnerId    String?
+
   // OAuth tokens (encrypted)
   accessToken       String
   refreshToken      String
@@ -49,6 +54,7 @@ model Channel {
 
   status            ChannelStatus @default(ACTIVE)
   lastSyncAt        DateTime?
+  lastClaimSyncAt   DateTime?     // Last time claims were fetched
   lastSyncError     String?
 
   createdAt         DateTime      @default(now())
@@ -110,6 +116,10 @@ model CopyrightEvent {
   videoId       String
   video         Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
 
+  // YouTube Content ID claim reference
+  youtubeClaimId String?    @unique  // The actual YouTube claim ID from Content ID API
+  assetId        String?    // YouTube asset ID being matched
+
   type          EventType
   status        EventStatus @default(ACTIVE)
 
@@ -121,12 +131,19 @@ model CopyrightEvent {
   contentType   String?     // audio, video, audiovisual
   claimedContent String?    // description of claimed content (e.g., song name)
 
+  // Match details from Content ID API
+  matchStartMs   Int?       // Match start time in milliseconds
+  matchEndMs     Int?       // Match end time in milliseconds
+
   // Affected regions
   affectedRegions String[]  @default([])
 
   // Impact
   monetizationImpact  String?   // none, partial, full
   viewabilityImpact   String?   // none, limited, blocked
+
+  // Policy applied
+  policyAction   String?    // monetize, block, track
 
   // Raw data from API
   rawData       Json?
@@ -143,6 +160,7 @@ model CopyrightEvent {
   disputes      Dispute[]
 
   @@index([videoId])
+  @@index([youtubeClaimId])
   @@index([claimantId])
   @@index([type])
   @@index([status])
@@ -387,4 +405,34 @@ enum NotificationType {
   DISPUTE_UPDATE
   SYNC_ERROR
   WEEKLY_SUMMARY
+}
+
+// ============================================================================
+// Role-Based Access Control
+// ============================================================================
+
+enum Role {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum Permission {
+  VIEW_USERS
+  EDIT_USERS
+  DELETE_USERS
+  MANAGE_ROLES
+  VIEW_CHANNELS
+  MANAGE_CHANNELS
+  VIEW_SYSTEM
+  MANAGE_SYSTEM
+}
+
+model RolePermission {
+  id         String     @id @default(cuid())
+  role       Role
+  permission Permission
+
+  @@unique([role, permission])
+  @@index([role])
 }

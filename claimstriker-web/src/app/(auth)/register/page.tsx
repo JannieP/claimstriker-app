@@ -62,7 +62,7 @@ export default function RegisterPage() {
           description: 'Welcome to ClaimStriker. Let&apos;s connect your YouTube channel.',
         });
 
-        router.push('/dashboard/channels');
+        router.push('/channels');
       }
     } catch (error: any) {
       toast({

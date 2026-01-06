@@ -9,6 +9,7 @@ import { channelRoutes } from './routes/channels.js';
 import { videoRoutes } from './routes/videos.js';
 import { eventRoutes } from './routes/events.js';
 import { youtubeRoutes } from './routes/youtube.js';
+import { adminRoutes } from './routes/admin.js';
 import type { JWTPayload } from './types/index.js';
 
 const fastify = Fastify({
@@ -62,6 +63,7 @@ await fastify.register(youtubeRoutes, { prefix: '/auth/youtube' });
 await fastify.register(channelRoutes, { prefix: '/channels' });
 await fastify.register(videoRoutes, { prefix: '/videos' });
 await fastify.register(eventRoutes, { prefix: '/events' });
+await fastify.register(adminRoutes, { prefix: '/admin' });
 
 // Error handler
 fastify.setErrorHandler((error, request, reply) => {

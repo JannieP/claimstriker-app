@@ -4,6 +4,7 @@ import type { FastifyRequest } from 'fastify';
 export interface JWTPayload {
   userId: string;
   email: string;
+  role: 'USER' | 'ADMIN' | 'SUPER_ADMIN';
   iat?: number;
   exp?: number;
 }

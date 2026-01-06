@@ -5,8 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { formatDate, formatNumber, getYouTubeVideoUrl } from '@/lib/utils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatDate, formatNumber } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -16,24 +16,38 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  Filter,
 } from 'lucide-react';
+
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export default function VideosPage() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [channelFilter, setChannelFilter] = useState<string>('');
   const [hasEventsFilter, setHasEventsFilter] = useState<boolean | undefined>(
     undefined
   );
+  const [videoTypeFilter, setVideoTypeFilter] = useState<'all' | 'short' | 'long'>('all');
+
+  // Fetch channels for filter dropdown
+  const { data: channelsData } = useQuery({
+    queryKey: ['channels'],
+    queryFn: () => api.getChannels(),
+  });
 
   const { data: videos, isLoading } = useQuery({
-    queryKey: ['videos', page, search, hasEventsFilter],
+    queryKey: ['videos', page, pageSize, search, channelFilter, hasEventsFilter, videoTypeFilter],
     queryFn: () =>
       api.getVideos({
         page,
-        limit: 20,
+        limit: pageSize,
         search: search || undefined,
+        channelId: channelFilter || undefined,
         hasEvents: hasEventsFilter,
+        videoType: videoTypeFilter,
       }),
   });
 
@@ -43,7 +57,77 @@ export default function VideosPage() {
     setPage(1);
   };
 
+  const handleChannelChange = (channelId: string) => {
+    setChannelFilter(channelId);
+    setPage(1);
+  };
+
+  const handlePageSizeChange = (newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+  };
+
+  const handleVideoTypeChange = (type: 'all' | 'short' | 'long') => {
+    setVideoTypeFilter(type);
+    setPage(1);
+  };
+
   const pagination = videos?.pagination;
+  const channels = channelsData?.data || [];
+
+  // Reusable Pagination Component
+  const PaginationControls = () => {
+    if (!pagination || pagination.totalPages <= 1) return null;
+
+    return (
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-3 px-4 bg-gray-50 rounded-lg">
+        <div className="flex items-center gap-4">
+          <p className="text-sm text-muted-foreground">
+            Showing {(page - 1) * pagination.limit + 1} to{' '}
+            {Math.min(page * pagination.limit, pagination.total)} of{' '}
+            {pagination.total} videos
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Show:</span>
+            <select
+              value={pageSize}
+              onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+              className="text-sm border rounded px-2 py-1 bg-white"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(page - 1)}
+            disabled={page === 1}
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground px-2">
+            Page {page} of {pagination.totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage(page + 1)}
+            disabled={page === pagination.totalPages}
+          >
+            Next
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -52,54 +136,111 @@ export default function VideosPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4">
-        <form onSubmit={handleSearch} className="flex-1 flex gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search videos..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="pl-9"
-            />
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row gap-4">
+          <form onSubmit={handleSearch} className="flex-1 flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search videos..."
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Button type="submit" variant="secondary">
+              Search
+            </Button>
+          </form>
+
+          {/* Channel Filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <select
+              value={channelFilter}
+              onChange={(e) => handleChannelChange(e.target.value)}
+              className="text-sm border rounded-md px-3 py-2 bg-white min-w-[180px]"
+            >
+              <option value="">All Channels</option>
+              {channels.map((channel: any) => (
+                <option key={channel.id} value={channel.id}>
+                  {channel.title}
+                </option>
+              ))}
+            </select>
           </div>
-          <Button type="submit" variant="secondary">
-            Search
-          </Button>
-        </form>
-        <div className="flex gap-2">
-          <Button
-            variant={hasEventsFilter === undefined ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              setHasEventsFilter(undefined);
-              setPage(1);
-            }}
-          >
-            All
-          </Button>
-          <Button
-            variant={hasEventsFilter === true ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              setHasEventsFilter(true);
-              setPage(1);
-            }}
-          >
-            With Events
-          </Button>
-          <Button
-            variant={hasEventsFilter === false ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              setHasEventsFilter(false);
-              setPage(1);
-            }}
-          >
-            No Events
-          </Button>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          {/* Events Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Events:</span>
+            <div className="flex gap-1">
+              <Button
+                variant={hasEventsFilter === undefined ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setHasEventsFilter(undefined);
+                  setPage(1);
+                }}
+              >
+                All
+              </Button>
+              <Button
+                variant={hasEventsFilter === true ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setHasEventsFilter(true);
+                  setPage(1);
+                }}
+              >
+                With Events
+              </Button>
+              <Button
+                variant={hasEventsFilter === false ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => {
+                  setHasEventsFilter(false);
+                  setPage(1);
+                }}
+              >
+                No Events
+              </Button>
+            </div>
+          </div>
+
+          {/* Video Type Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Type:</span>
+            <div className="flex gap-1">
+              <Button
+                variant={videoTypeFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleVideoTypeChange('all')}
+              >
+                All
+              </Button>
+              <Button
+                variant={videoTypeFilter === 'long' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleVideoTypeChange('long')}
+              >
+                Long Form
+              </Button>
+              <Button
+                variant={videoTypeFilter === 'short' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleVideoTypeChange('short')}
+              >
+                Shorts
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Top Pagination */}
+      <PaginationControls />
 
       {/* Videos List */}
       {isLoading ? (
@@ -187,39 +328,8 @@ export default function VideosPage() {
             ))}
           </div>
 
-          {/* Pagination */}
-          {pagination && pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                Showing {(page - 1) * pagination.limit + 1} to{' '}
-                {Math.min(page * pagination.limit, pagination.total)} of{' '}
-                {pagination.total} videos
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(page - 1)}
-                  disabled={page === 1}
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  Previous
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  Page {page} of {pagination.totalPages}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(page + 1)}
-                  disabled={page === pagination.totalPages}
-                >
-                  Next
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          {/* Bottom Pagination */}
+          <PaginationControls />
         </>
       ) : (
         <Card className="border-dashed">
@@ -229,6 +339,8 @@ export default function VideosPage() {
             <p className="text-muted-foreground max-w-md mx-auto">
               {search
                 ? `No videos matching "${search}"`
+                : channelFilter
+                ? 'No videos found for this channel'
                 : 'Connect a YouTube channel to see your videos here'}
             </p>
           </CardContent>

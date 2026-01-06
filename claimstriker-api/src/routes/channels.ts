@@ -1,7 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../config/database.js';
-import { channelSyncQueue } from '../workers/queue.js';
+import { channelSyncQueue, claimSyncQueue } from '../workers/queue.js';
 
 const paginationSchema = z.object({
   page: z.coerce.number().min(1).default(1),
@@ -28,8 +28,10 @@ export async function channelRoutes(fastify: FastifyInstance) {
           thumbnailUrl: true,
           subscriberCount: true,
           videoCount: true,
+          contentOwnerId: true,
           status: true,
           lastSyncAt: true,
+          lastClaimSyncAt: true,
           lastSyncError: true,
           createdAt: true,
           _count: {
@@ -46,6 +48,8 @@ export async function channelRoutes(fastify: FastifyInstance) {
         data: channels.map((c) => ({
           ...c,
           syncedVideoCount: c._count.videos,
+          isPartner: c.contentOwnerId !== null,
+          contentOwnerId: undefined,
           _count: undefined,
         })),
       });
@@ -162,6 +166,62 @@ export async function channelRoutes(fastify: FastifyInstance) {
       return reply.send({
         success: true,
         data: { message: 'Sync job queued' },
+      });
+    }
+  );
+
+  // Trigger claim sync (Content ID API)
+  fastify.post(
+    '/:channelId/sync-claims',
+    {
+      preHandler: [fastify.authenticate as any],
+    },
+    async (request: FastifyRequest<{
+      Params: { channelId: string };
+      Querystring: { fullSync?: string };
+    }>, reply: FastifyReply) => {
+      const { channelId } = request.params;
+      const { fullSync } = request.query as { fullSync?: string };
+      const { userId } = request.user!;
+
+      const channel = await prisma.channel.findFirst({
+        where: {
+          id: channelId,
+          userId,
+        },
+      });
+
+      if (!channel) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Channel not found',
+        });
+      }
+
+      if (channel.status !== 'ACTIVE') {
+        return reply.status(400).send({
+          success: false,
+          error: 'Channel is not active. Please reconnect your YouTube account.',
+        });
+      }
+
+      // Queue claim sync job
+      await claimSyncQueue.add(
+        'sync-claims',
+        {
+          channelId,
+          fullSync: fullSync === 'true',
+        },
+        {
+          jobId: `claim-sync-${channelId}-${Date.now()}`,
+          removeOnComplete: true,
+          removeOnFail: 100,
+        }
+      );
+
+      return reply.send({
+        success: true,
+        data: { message: 'Claim sync job queued. This uses the YouTube Content ID API to fetch real claim data.' },
       });
     }
   );

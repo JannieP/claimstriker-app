@@ -4,8 +4,8 @@ import { decrypt } from '../lib/encryption.js';
 import { listVideos, getChannelInfo } from '../lib/youtube/api.js';
 import { refreshAccessToken } from '../lib/youtube/oauth.js';
 import { encrypt } from '../lib/encryption.js';
-import { claimDetectQueue, notificationQueue } from './queue.js';
-import type { ChannelSyncJob, ClaimDetectJob, NotificationJob } from './queue.js';
+import { claimDetectQueue, claimSyncQueue, notificationQueue } from './queue.js';
+import type { ChannelSyncJob, ClaimSyncJob, ClaimDetectJob, NotificationJob } from './queue.js';
 
 export async function processChannelSync(job: Job<ChannelSyncJob>) {
   const { channelId } = job.data;
@@ -166,6 +166,14 @@ export async function processChannelSync(job: Job<ChannelSyncJob>) {
       `[ChannelSync] Completed sync for channel ${channelId}: ` +
         `${totalVideosSynced} videos synced, ${newVideosCount} new`
     );
+
+    // Queue claim sync job to fetch claims from Content ID API
+    await claimSyncQueue.add(
+      'sync-claims',
+      { channelId } as ClaimSyncJob,
+      { jobId: `claim-sync-${channelId}-${Date.now()}` }
+    );
+    console.log(`[ChannelSync] Queued claim sync job for channel ${channelId}`);
   } catch (error: any) {
     console.error(`[ChannelSync] Error syncing channel ${channelId}:`, error.message);
 

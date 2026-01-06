@@ -8,9 +8,29 @@ const listQuerySchema = z.object({
   channelId: z.string().optional(),
   search: z.string().optional(),
   hasEvents: z.coerce.boolean().optional(),
+  videoType: z.enum(['all', 'short', 'long']).default('all'),
   sortBy: z.enum(['publishedAt', 'title', 'viewCount']).default('publishedAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
+
+// Parse ISO 8601 duration to seconds
+function parseDurationToSeconds(duration: string | null): number {
+  if (!duration) return 0;
+
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+
+  const hours = parseInt(match[1] || '0', 10);
+  const minutes = parseInt(match[2] || '0', 10);
+  const seconds = parseInt(match[3] || '0', 10);
+
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+// Check if video is a Short (≤60 seconds)
+function isShortVideo(duration: string | null): boolean {
+  return parseDurationToSeconds(duration) <= 60;
+}
 
 export async function videoRoutes(fastify: FastifyInstance) {
   // List videos
@@ -48,29 +68,76 @@ export async function videoRoutes(fastify: FastifyInstance) {
         }
       }
 
+      // If filtering by video type, we need to fetch all and filter in memory
+      // This is because duration is stored as ISO 8601 string
+      const needsTypeFilter = query.videoType !== 'all';
+
+      const baseSelect = {
+        id: true,
+        youtubeVideoId: true,
+        title: true,
+        thumbnailUrl: true,
+        publishedAt: true,
+        viewCount: true,
+        privacyStatus: true,
+        duration: true,
+        channel: {
+          select: {
+            id: true,
+            title: true,
+          },
+        },
+        _count: {
+          select: {
+            copyrightEvents: true,
+          },
+        },
+      };
+
+      if (needsTypeFilter) {
+        // Fetch all matching videos to filter by type
+        const allVideos = await prisma.video.findMany({
+          where,
+          select: baseSelect,
+          orderBy: { [query.sortBy]: query.sortOrder },
+        });
+
+        // Filter by video type
+        const filteredVideos = allVideos.filter((v) => {
+          const isShort = isShortVideo(v.duration);
+          return query.videoType === 'short' ? isShort : !isShort;
+        });
+
+        const total = filteredVideos.length;
+        const paginatedVideos = filteredVideos.slice(
+          (query.page - 1) * query.limit,
+          query.page * query.limit
+        );
+
+        return reply.send({
+          success: true,
+          data: paginatedVideos.map((v) => ({
+            ...v,
+            eventCount: v._count.copyrightEvents,
+            youtubeUrl: `https://www.youtube.com/watch?v=${v.youtubeVideoId}`,
+            isShort: isShortVideo(v.duration),
+            durationSeconds: parseDurationToSeconds(v.duration),
+            _count: undefined,
+          })),
+          pagination: {
+            page: query.page,
+            limit: query.limit,
+            total,
+            totalPages: Math.ceil(total / query.limit),
+          },
+        });
+      }
+
+      // Standard pagination without type filter
       const [videos, total] = await Promise.all([
         prisma.video.findMany({
           where,
-          select: {
-            id: true,
-            youtubeVideoId: true,
-            title: true,
-            thumbnailUrl: true,
-            publishedAt: true,
-            viewCount: true,
-            privacyStatus: true,
-            channel: {
-              select: {
-                id: true,
-                title: true,
-              },
-            },
-            _count: {
-              select: {
-                copyrightEvents: true,
-              },
-            },
-          },
+          select: baseSelect,
           orderBy: { [query.sortBy]: query.sortOrder },
           skip: (query.page - 1) * query.limit,
           take: query.limit,
@@ -84,6 +151,8 @@ export async function videoRoutes(fastify: FastifyInstance) {
           ...v,
           eventCount: v._count.copyrightEvents,
           youtubeUrl: `https://www.youtube.com/watch?v=${v.youtubeVideoId}`,
+          isShort: isShortVideo(v.duration),
+          durationSeconds: parseDurationToSeconds(v.duration),
           _count: undefined,
         })),
         pagination: {

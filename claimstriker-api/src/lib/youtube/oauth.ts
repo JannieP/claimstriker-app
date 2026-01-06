@@ -5,6 +5,7 @@ import type { YouTubeTokens } from '../../types/index.js';
 const SCOPES = [
   'https://www.googleapis.com/auth/youtube.readonly',
   'https://www.googleapis.com/auth/yt-analytics.readonly',
+  'https://www.googleapis.com/auth/youtubepartner', // Content ID API access
 ];
 
 function getOAuth2Client() {

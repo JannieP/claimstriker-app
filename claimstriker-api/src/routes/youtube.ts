@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../config/database.js';
+import { env } from '../config/env.js';
 import { encrypt, decrypt } from '../lib/encryption.js';
 import {
   getAuthUrl,
@@ -36,13 +37,12 @@ export async function youtubeRoutes(fastify: FastifyInstance) {
   );
 
   // OAuth callback - exchange code for tokens and link channel
-  fastify.post('/callback', async (request: FastifyRequest, reply: FastifyReply) => {
-    const result = callbackSchema.safeParse(request.body);
+  fastify.get('/callback', async (request: FastifyRequest, reply: FastifyReply) => {
+    const frontendUrl = env.FRONTEND_URL;
+
+    const result = callbackSchema.safeParse(request.query);
     if (!result.success) {
-      return reply.status(400).send({
-        success: false,
-        error: 'Invalid callback data',
-      });
+      return reply.redirect(`${frontendUrl}/channels?error=invalid_callback`);
     }
 
     const { code, state } = result.data;
@@ -54,10 +54,7 @@ export async function youtubeRoutes(fastify: FastifyInstance) {
       userId = decoded.userId;
       if (!userId) throw new Error('No userId in state');
     } catch {
-      return reply.status(400).send({
-        success: false,
-        error: 'Invalid state parameter',
-      });
+      return reply.redirect(`${frontendUrl}/channels?error=invalid_state`);
     }
 
     // Verify user exists
@@ -66,10 +63,7 @@ export async function youtubeRoutes(fastify: FastifyInstance) {
     });
 
     if (!user) {
-      return reply.status(404).send({
-        success: false,
-        error: 'User not found',
-      });
+      return reply.redirect(`${frontendUrl}/channels?error=user_not_found`);
     }
 
     try {
@@ -102,23 +96,14 @@ export async function youtubeRoutes(fastify: FastifyInstance) {
             },
           });
 
-          return reply.send({
-            success: true,
-            data: {
-              message: 'Channel reconnected successfully',
-              channelId: existingChannel.id,
-            },
-          });
+          return reply.redirect(`${frontendUrl}/channels?success=reconnected`);
         } else {
-          return reply.status(409).send({
-            success: false,
-            error: 'This channel is already linked to another account',
-          });
+          return reply.redirect(`${frontendUrl}/channels?error=channel_already_linked`);
         }
       }
 
       // Create new channel
-      const channel = await prisma.channel.create({
+      await prisma.channel.create({
         data: {
           userId,
           youtubeChannelId: channelInfo.id,
@@ -131,27 +116,12 @@ export async function youtubeRoutes(fastify: FastifyInstance) {
           refreshToken: encrypt(tokens.refreshToken),
           tokenExpiresAt: tokens.expiresAt,
         },
-        select: {
-          id: true,
-          youtubeChannelId: true,
-          title: true,
-          thumbnailUrl: true,
-        },
       });
 
-      return reply.status(201).send({
-        success: true,
-        data: {
-          message: 'Channel linked successfully',
-          channel,
-        },
-      });
+      return reply.redirect(`${frontendUrl}/channels?success=connected`);
     } catch (error) {
       fastify.log.error(error);
-      return reply.status(500).send({
-        success: false,
-        error: 'Failed to link YouTube channel',
-      });
+      return reply.redirect(`${frontendUrl}/channels?error=link_failed`);
     }
   });
 

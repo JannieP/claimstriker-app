@@ -4,6 +4,7 @@ import { redis } from '../config/redis.js';
 // Queue names
 export const QUEUE_NAMES = {
   CHANNEL_SYNC: 'channel-sync',
+  CLAIM_SYNC: 'claim-sync',
   CLAIM_DETECT: 'claim-detect',
   NOTIFICATION: 'notification',
 } as const;
@@ -30,6 +31,14 @@ export const channelSyncQueue = new Queue(QUEUE_NAMES.CHANNEL_SYNC, {
   defaultJobOptions,
 });
 
+export const claimSyncQueue = new Queue(QUEUE_NAMES.CLAIM_SYNC, {
+  connection: redis,
+  defaultJobOptions: {
+    ...defaultJobOptions,
+    attempts: 2, // Content ID API may not be available for all accounts
+  },
+});
+
 export const claimDetectQueue = new Queue(QUEUE_NAMES.CLAIM_DETECT, {
   connection: redis,
   defaultJobOptions,
@@ -46,6 +55,11 @@ export const notificationQueue = new Queue(QUEUE_NAMES.NOTIFICATION, {
 // Job types
 export interface ChannelSyncJob {
   channelId: string;
+}
+
+export interface ClaimSyncJob {
+  channelId: string;
+  fullSync?: boolean;
 }
 
 export interface ClaimDetectJob {
@@ -72,6 +86,7 @@ function setupQueueEvents(queue: Queue, name: string) {
 }
 
 setupQueueEvents(channelSyncQueue, QUEUE_NAMES.CHANNEL_SYNC);
+setupQueueEvents(claimSyncQueue, QUEUE_NAMES.CLAIM_SYNC);
 setupQueueEvents(claimDetectQueue, QUEUE_NAMES.CLAIM_DETECT);
 setupQueueEvents(notificationQueue, QUEUE_NAMES.NOTIFICATION);
 
@@ -104,6 +119,7 @@ export function createWorker<T>(
 export async function closeQueues() {
   await Promise.all([
     channelSyncQueue.close(),
+    claimSyncQueue.close(),
     claimDetectQueue.close(),
     notificationQueue.close(),
   ]);
