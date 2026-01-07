@@ -76,16 +76,53 @@ export async function videoRoutes(fastify: FastifyInstance) {
         id: true,
         youtubeVideoId: true,
         title: true,
+        description: true,
         thumbnailUrl: true,
         publishedAt: true,
         viewCount: true,
+        likeCount: true,
         privacyStatus: true,
         duration: true,
+        license: true,
+        madeForKids: true,
+        blockedRegions: true,
+        allowedRegions: true,
+        monetizationStatus: true,
+        uploadStatus: true,
+        createdAt: true,
+        updatedAt: true,
         channel: {
           select: {
             id: true,
             title: true,
           },
+        },
+        copyrightEvents: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            claimType: true,
+            contentType: true,
+            claimedContent: true,
+            policyAction: true,
+            monetizationImpact: true,
+            viewabilityImpact: true,
+            affectedRegions: true,
+            matchStartMs: true,
+            matchEndMs: true,
+            explanation: true,
+            detectedAt: true,
+            resolvedAt: true,
+            claimant: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+              },
+            },
+          },
+          orderBy: { detectedAt: 'desc' as const },
         },
         _count: {
           select: {
@@ -119,9 +156,11 @@ export async function videoRoutes(fastify: FastifyInstance) {
           data: paginatedVideos.map((v) => ({
             ...v,
             eventCount: v._count.copyrightEvents,
+            events: v.copyrightEvents,
             youtubeUrl: `https://www.youtube.com/watch?v=${v.youtubeVideoId}`,
             isShort: isShortVideo(v.duration),
             durationSeconds: parseDurationToSeconds(v.duration),
+            copyrightEvents: undefined,
             _count: undefined,
           })),
           pagination: {
@@ -150,9 +189,11 @@ export async function videoRoutes(fastify: FastifyInstance) {
         data: videos.map((v) => ({
           ...v,
           eventCount: v._count.copyrightEvents,
+          events: v.copyrightEvents,
           youtubeUrl: `https://www.youtube.com/watch?v=${v.youtubeVideoId}`,
           isShort: isShortVideo(v.duration),
           durationSeconds: parseDurationToSeconds(v.duration),
+          copyrightEvents: undefined,
           _count: undefined,
         })),
         pagination: {

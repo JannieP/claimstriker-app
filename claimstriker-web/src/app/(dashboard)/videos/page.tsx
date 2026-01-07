@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -17,6 +17,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Filter,
+  Code,
+  LayoutDashboard,
 } from 'lucide-react';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -31,6 +33,34 @@ export default function VideosPage() {
     undefined
   );
   const [videoTypeFilter, setVideoTypeFilter] = useState<'all' | 'short' | 'long'>('all');
+  const [jsonViewIds, setJsonViewIds] = useState<Set<string>>(new Set());
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Check if user is admin
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      api.setToken(token);
+      api.getMe().then((response) => {
+        if (response.success && response.data) {
+          const role = (response.data as any).role;
+          setIsAdmin(role === 'ADMIN' || role === 'SUPER_ADMIN');
+        }
+      });
+    }
+  }, []);
+
+  const toggleJsonView = (videoId: string) => {
+    setJsonViewIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(videoId)) {
+        newSet.delete(videoId);
+      } else {
+        newSet.add(videoId);
+      }
+      return newSet;
+    });
+  };
 
   // Fetch channels for filter dropdown
   const { data: channelsData } = useQuery({
@@ -263,69 +293,226 @@ export default function VideosPage() {
       ) : videos?.data && videos.data.length > 0 ? (
         <>
           <div className="space-y-4">
-            {videos.data.map((video: any) => (
-              <Card key={video.id}>
-                <CardContent className="p-4">
-                  <div className="flex gap-4">
-                    {video.thumbnailUrl ? (
-                      <Image
-                        src={video.thumbnailUrl}
-                        alt={video.title}
-                        width={160}
-                        height={90}
-                        className="rounded object-cover"
-                      />
-                    ) : (
-                      <div className="w-40 h-24 bg-gray-100 rounded flex items-center justify-center">
-                        <Video className="h-8 w-8 text-gray-400" />
+            {videos.data.map((video: any) => {
+              const isJsonView = jsonViewIds.has(video.id);
+
+              return (
+                <Card key={video.id}>
+                  <CardContent className="p-4">
+                    {/* Admin View Toggle */}
+                    {isAdmin && (
+                      <div className="flex justify-end mb-3">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleJsonView(video.id)}
+                          className="text-xs"
+                        >
+                          {isJsonView ? (
+                            <>
+                              <LayoutDashboard className="h-3 w-3 mr-1" />
+                              UX View
+                            </>
+                          ) : (
+                            <>
+                              <Code className="h-3 w-3 mr-1" />
+                              JSON View
+                            </>
+                          )}
+                        </Button>
                       </div>
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <h3 className="font-medium truncate">{video.title}</h3>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {video.channel?.title} | Published{' '}
-                            {formatDate(video.publishedAt)}
-                          </p>
+
+                    {isJsonView ? (
+                      /* JSON View */
+                      <div className="bg-gray-900 rounded-lg p-4 overflow-auto max-h-[600px]">
+                        <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
+                          {JSON.stringify(video, null, 2)}
+                        </pre>
+                      </div>
+                    ) : (
+                      /* UX View */
+                      <div className="space-y-4">
+                        <div className="flex gap-4">
+                          {video.thumbnailUrl ? (
+                            <Image
+                              src={video.thumbnailUrl}
+                              alt={video.title}
+                              width={160}
+                              height={90}
+                              className="rounded object-cover"
+                            />
+                          ) : (
+                            <div className="w-40 h-24 bg-gray-100 rounded flex items-center justify-center">
+                              <Video className="h-8 w-8 text-gray-400" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <h3 className="font-medium truncate">{video.title}</h3>
+                                <p className="text-sm text-muted-foreground mt-1">
+                                  {video.channel?.title} | Published{' '}
+                                  {formatDate(video.publishedAt)}
+                                </p>
+                              </div>
+                              {video.eventCount > 0 && (
+                                <div className="flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 rounded text-sm">
+                                  <AlertTriangle className="h-4 w-4" />
+                                  <span>{video.eventCount} events</span>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
+                              <span>{formatNumber(video.viewCount || 0)} views</span>
+                              <span className="capitalize">{video.privacyStatus}</span>
+                              {video.isShort && (
+                                <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium">
+                                  Short
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-3">
+                              <Button variant="outline" size="sm" asChild>
+                                <a
+                                  href={video.youtubeUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <ExternalLink className="h-4 w-4 mr-2" />
+                                  View on YouTube
+                                </a>
+                              </Button>
+                              {video.eventCount > 0 && (
+                                <Button variant="outline" size="sm" asChild>
+                                  <Link
+                                    href={`/events?videoId=${video.id}`}
+                                  >
+                                    View Events
+                                  </Link>
+                                </Button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        {video.eventCount > 0 && (
-                          <div className="flex items-center gap-1 px-2 py-1 bg-amber-50 text-amber-700 rounded text-sm">
-                            <AlertTriangle className="h-4 w-4" />
-                            <span>{video.eventCount} events</span>
+
+                        {/* Event Details */}
+                        {video.events && video.events.length > 0 && (
+                          <div className="border-t pt-4 mt-4">
+                            <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                              <AlertTriangle className="h-4 w-4 text-amber-500" />
+                              Copyright Events ({video.events.length})
+                            </h4>
+                            <div className="space-y-3">
+                              {video.events.map((event: any) => (
+                                <div
+                                  key={event.id}
+                                  className="bg-gray-50 rounded-lg p-3 text-sm"
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span
+                                          className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                            event.type === 'CLAIM'
+                                              ? 'bg-yellow-100 text-yellow-800'
+                                              : event.type === 'STRIKE'
+                                                ? 'bg-red-100 text-red-800'
+                                                : 'bg-orange-100 text-orange-800'
+                                          }`}
+                                        >
+                                          {event.type}
+                                        </span>
+                                        <span
+                                          className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                            event.status === 'ACTIVE'
+                                              ? 'bg-red-100 text-red-800'
+                                              : event.status === 'RESOLVED'
+                                                ? 'bg-green-100 text-green-800'
+                                                : event.status === 'DISPUTED'
+                                                  ? 'bg-blue-100 text-blue-800'
+                                                  : 'bg-gray-100 text-gray-800'
+                                          }`}
+                                        >
+                                          {event.status}
+                                        </span>
+                                        {event.claimType && (
+                                          <span className="text-xs text-muted-foreground">
+                                            {event.claimType}
+                                          </span>
+                                        )}
+                                        {event.contentType && (
+                                          <span className="text-xs text-muted-foreground">
+                                            ({event.contentType})
+                                          </span>
+                                        )}
+                                      </div>
+                                      {event.claimant && (
+                                        <p className="mt-1 text-muted-foreground">
+                                          <span className="font-medium">Claimant:</span>{' '}
+                                          {event.claimant.name}
+                                          {event.claimant.type && (
+                                            <span className="text-xs ml-1">
+                                              ({event.claimant.type})
+                                            </span>
+                                          )}
+                                        </p>
+                                      )}
+                                      {event.claimedContent && (
+                                        <p className="mt-1 text-muted-foreground line-clamp-2">
+                                          <span className="font-medium">Content:</span>{' '}
+                                          {event.claimedContent}
+                                        </p>
+                                      )}
+                                      {event.policyAction && (
+                                        <p className="mt-1">
+                                          <span className="font-medium">Policy:</span>{' '}
+                                          <span className="text-muted-foreground capitalize">{event.policyAction}</span>
+                                        </p>
+                                      )}
+                                      {(event.monetizationImpact || event.viewabilityImpact) && (
+                                        <p className="mt-1">
+                                          <span className="font-medium">Impact:</span>{' '}
+                                          <span className="text-muted-foreground">
+                                            {event.monetizationImpact && `Monetization: ${event.monetizationImpact}`}
+                                            {event.monetizationImpact && event.viewabilityImpact && ' | '}
+                                            {event.viewabilityImpact && `Viewability: ${event.viewabilityImpact}`}
+                                          </span>
+                                        </p>
+                                      )}
+                                      {event.affectedRegions && event.affectedRegions.length > 0 && (
+                                        <p className="mt-1">
+                                          <span className="font-medium">Regions:</span>{' '}
+                                          <span className="text-muted-foreground">
+                                            {event.affectedRegions.slice(0, 5).join(', ')}
+                                            {event.affectedRegions.length > 5 && ` +${event.affectedRegions.length - 5} more`}
+                                          </span>
+                                        </p>
+                                      )}
+                                      {event.explanation && (
+                                        <p className="mt-1 text-muted-foreground text-xs italic">
+                                          {event.explanation}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-muted-foreground text-right">
+                                      <p>Detected: {formatDate(event.detectedAt)}</p>
+                                      {event.resolvedAt && (
+                                        <p>Resolved: {formatDate(event.resolvedAt)}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-4 mt-3 text-sm text-muted-foreground">
-                        <span>{formatNumber(video.viewCount || 0)} views</span>
-                        <span className="capitalize">{video.privacyStatus}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-3">
-                        <Button variant="outline" size="sm" asChild>
-                          <a
-                            href={video.youtubeUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            View on YouTube
-                          </a>
-                        </Button>
-                        {video.eventCount > 0 && (
-                          <Button variant="outline" size="sm" asChild>
-                            <Link
-                              href={`/dashboard/events?videoId=${video.id}`}
-                            >
-                              View Events
-                            </Link>
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
 
           {/* Bottom Pagination */}
